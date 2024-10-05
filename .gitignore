@@ -1,5 +1,1 @@
-# Ignore the build directory
-models/
-
-# Ignore the egg-info directory
-configs/
+*/.idea
