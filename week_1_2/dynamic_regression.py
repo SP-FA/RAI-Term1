@@ -1,3 +1,5 @@
+from statistics import covariance
+
 import numpy as np
 import time
 import os
@@ -90,48 +92,64 @@ def main():
         print(f"Current time in seconds: {current_time:.2f}")
 
     # TODO After data collection, stack all the regressor and all the torquen and compute the parameters 'a'  using pseudoinverse
-    # tau_cmd_all: u(x), (n, p)
-    # tau_mes_all: u^(x), (n, p)
-    # regressor_all: Y(g, g_d, g_dd)  (n, p, 70)
-    n = 10001
-    p = 7
-    a_all = []
-    for i in range(n):
-        cur_reg = regressor_all[i]  # (p, 70)
-        cur_tau = tau_mes_all[i]  # (p)
-        a = np.linalg.pinv(cur_reg) @ cur_tau
-        a_all.append(a)
-    
+    tau_cmd_all = np.array(tau_cmd_all)  # u(x), (n, p)
+    tau_mes_all = np.array(tau_mes_all)  # u_hat(x), (n, p)
+    regressor_all = np.array(regressor_all)  # Y(g, g_d, g_dd), (n, p, 70)
+
+    n, p = tau_mes_all.shape
+
+    regressor_new = regressor_all.transpose(1, 0, 2)  # (p, n, 70)
+    regressor_inv = np.linalg.pinv(regressor_new)  # (p, 70, n)
+    a = np.sum(regressor_inv @ tau_mes_all[np.newaxis, :, :], axis=-1)  # (p, 70)
+    a = a.transpose(1, 0)
+    print(f"a: {a}")
+    print(f"a_shape: {a.shape}")
+
     # TODO compute the metrics for the linear model
-    tau_cmd_all = np.array(tau_cmd_all)
-    tau_mes_all = np.array(tau_mes_all)
-    RSS = np.sum((tau_cmd_all - tau_mes_all) ** 2, axis=1)
-    TSS = np.sum(tau_cmd_all - np.expand_dims(np.mean(tau_mes_all, axis=1), axis=1), axis=1)
-    
+    RSS = np.sum((tau_cmd_all - tau_mes_all) ** 2, axis=0) + 1e-9  # (p, 1)
+    TSS = np.sum((tau_cmd_all - np.expand_dims(np.mean(tau_cmd_all, axis=0), axis=0)) ** 2, axis=0) + 1e-9
+
     r2 = 1 - RSS / TSS
-    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - p - 1))
+    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - p - 1))  # (p, 1)
     print(f"r2_adj: {r2_adj}")
-    print(r2_adj.shape)
-    
-    F = ((TSS - RSS) / p) / (RSS / (n - p - 1))
+
+    F = (TSS - RSS) * (n - p - 1) / (RSS * p)  # (p, 1)
     print(f"F: {F}")
-    print(F.shape)
 
-    SE_pred_all = []
-    for i in range(n):
-        X = regressor_all[i]
-        kernel = np.linalg.pinv(np.dot(X.T, X))
-        s = np.sum(np.dot(X, kernel) * X, axis=1)
-        SE_pred = np.sqrt(np.var(X, axis=1) * (1 + s))
-        SE_pred_all.append(SE_pred)
+    sigma2 = RSS / (n - p - 1)  # (p, 1)
+    ex_sigma2 = sigma2[:, np.newaxis, np.newaxis]
+    X  = regressor_all.transpose(1, 0, 2)  # (p, n, 70)
+    XT = regressor_all.transpose(1, 2, 0)  # (p, 70, n)
+    kernel = XT @ X  # (p, 70, 70)
 
-    SE_pred_all = np.array(SE_pred_all)
-    interval_low = tau_mes_all - 1.96 * SE_pred_all
-    interval_high = tau_mes_all + 1.96 * SE_pred_all
-    print(interval_low)
-    print(interval_high)
-   
-    # TODO plot the  torque prediction error for each joint (optional)
+    covariance = kernel * ex_sigma2  # (p, 70, 70)
+    se_beta = np.sqrt(np.diagonal(np.linalg.pinv(covariance), axis1=1, axis2=2))
+    interval_low  = a - 1.96 * se_beta.transpose(1, 0)
+    interval_high = a + 1.96 * se_beta.transpose(1, 0)
+    print(f"params interval low: {interval_low}")
+    print(f"params interval high: {interval_high}")
+    print(f"params interval low / high shape: {interval_low.shape}")
+
+    # print(f"se_beta: {se_beta}")
+    # print(f"se_beta_shape: {se_beta.shape}")
+
+    se_pred = np.sqrt(np.diagonal(X @ np.linalg.pinv(kernel) @ XT + 1, axis1=1, axis2=2) * sigma2[:, np.newaxis])
+    interval_low = tau_mes_all - 1.96 * se_pred.transpose(1, 0)
+    interval_high = tau_mes_all + 1.96 * se_pred.transpose(1, 0)
+    print(f"pred interval low: {interval_low}")
+    print(f"pred interval high: {interval_high}")
+    print(f"pred interval low / high shape: {interval_low.shape}")
+    # print(se_pred)
+    # print(se_pred.shape)
+
+    # TODO plot the torque prediction error for each joint (optional)
+    plt.figure()
+    plt.plot(r2_adj, "b", label="q")
+    plt.title("R2")
+    plt.xlabel("joint id")
+    plt.ylabel("R2")
+    plt.grid(True)
+    plt.show()
     
 
 if __name__ == '__main__':
