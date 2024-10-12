@@ -49,7 +49,6 @@ def main():
     kd = 100
 
     # Initialize data storage
-    tau_cmd_all = []
     tau_mes_all = []
     regressor_all = []
 
@@ -66,7 +65,6 @@ def main():
         # Control command
         cmd.tau_cmd = feedback_lin_ctrl(dyn_model, q_mes, qd_mes, q_d, qd_d, kp, kd)
         sim.Step(cmd, "torque")
-        tau_cmd_all.append(feedback_lin_ctrl(dyn_model, q_mes, qd_mes, q_d, qd_d, kp, kd))
 
         # Get measured torque
         tau_mes = sim.GetMotorTorques(0)
@@ -92,40 +90,40 @@ def main():
         print(f"Current time in seconds: {current_time:.2f}")
 
     # TODO After data collection, stack all the regressor and all the torquen and compute the parameters 'a'  using pseudoinverse
-    tau_cmd_all = np.array(tau_cmd_all)  # u(x), (n, p)
-    tau_mes_all = np.array(tau_mes_all)  # u_hat(x), (n, p)
-    regressor_all = np.array(regressor_all)  # Y(g, g_d, g_dd), (n, p, 70)
+    tau_mes_all = np.array(tau_mes_all)  # u(x), (n, j)
+    regressor_all = np.array(regressor_all)  # Y(g, g_d, g_dd), (n, j, p)
+    n, j, p = regressor_all.shape
 
-    n, p = tau_mes_all.shape
+    XT = regressor_all.transpose(1, 2, 0)
+    X  = regressor_all.transpose(1, 0, 2)  # (j, n, p)
+    y = tau_mes_all[:, :, np.newaxis].transpose(1, 0, 2)  # (j, n, 1)
 
-    regressor_new = regressor_all.transpose(1, 0, 2)  # (p, n, 70)
-    regressor_inv = np.linalg.pinv(regressor_new)  # (p, 70, n)
-    a = np.sum(regressor_inv @ tau_mes_all[np.newaxis, :, :], axis=-1)  # (p, 70)
-    a = a.transpose(1, 0)
+    regressor_inv = np.linalg.pinv(X)  # (j, p, n)
+    a = regressor_inv @ y  # (j, p, 1)
+    u_hat = X @ a  # (j, n, 1)
+
+    a = np.squeeze(a, axis=-1)  # (j, p)
     print(f"a: {a}")
     print(f"a_shape: {a.shape}")
+    # print(a[:, :, np.newaxis].transpose(1, 0, 2) - beta_hat)
 
     # TODO compute the metrics for the linear model
-    RSS = np.sum((tau_cmd_all - tau_mes_all) ** 2, axis=0) + 1e-9  # (p, 1)
-    TSS = np.sum((tau_cmd_all - np.expand_dims(np.mean(tau_cmd_all, axis=0), axis=0)) ** 2, axis=0) + 1e-9
+    RSS = np.sum((y - u_hat) ** 2, axis=1) + 1e-9  # (j, 1)
+    TSS = np.sum((y - np.mean(y, axis=1)[:, :, np.newaxis]) ** 2, axis=1)# + 1e-9
 
     r2 = 1 - RSS / TSS
-    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - p - 1))  # (p, 1)
+    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - j - 1))  # (j, 1)
     print(f"r2_adj: {r2_adj}")
 
-    F = (TSS - RSS) * (n - p - 1) / (RSS * p)  # (p, 1)
+    F = (TSS - RSS) * (n - j - 1) / (RSS * j)  # (j, 1)
     print(f"F: {F}")
 
-    sigma2 = RSS / (n - p - 1)  # (p, 1)
-    ex_sigma2 = sigma2[:, np.newaxis, np.newaxis]
-    X  = regressor_all.transpose(1, 0, 2)  # (p, n, 70)
-    XT = regressor_all.transpose(1, 2, 0)  # (p, 70, n)
-    kernel = XT @ X  # (p, 70, 70)
-
-    covariance = kernel * ex_sigma2  # (p, 70, 70)
-    se_beta = np.sqrt(np.diagonal(np.linalg.pinv(covariance), axis1=1, axis2=2))
-    interval_low  = a - 1.96 * se_beta.transpose(1, 0)
-    interval_high = a + 1.96 * se_beta.transpose(1, 0)
+    sigma2 = RSS / (n - j - 1)  # (j, 1)
+    ex_sigma2 = sigma2[:, np.newaxis]
+    covariance = (XT @ X) * ex_sigma2  # (j, p, p)
+    se_beta = np.sqrt(np.diagonal(np.linalg.pinv(covariance) + 1e-9, axis1=1, axis2=2))
+    interval_low  = a - 1.96 * se_beta
+    interval_high = a + 1.96 * se_beta
     print(f"params interval low: {interval_low}")
     print(f"params interval high: {interval_high}")
     print(f"params interval low / high shape: {interval_low.shape}")
@@ -133,9 +131,10 @@ def main():
     # print(f"se_beta: {se_beta}")
     # print(f"se_beta_shape: {se_beta.shape}")
 
-    se_pred = np.sqrt(np.diagonal(X @ np.linalg.pinv(kernel) @ XT + 1, axis1=1, axis2=2) * sigma2[:, np.newaxis])
-    interval_low = tau_mes_all - 1.96 * se_pred.transpose(1, 0)
-    interval_high = tau_mes_all + 1.96 * se_pred.transpose(1, 0)
+    se_pred = np.sqrt(np.diagonal(X @ np.linalg.pinv(XT @ X) @ XT + 1, axis1=1, axis2=2) * sigma2)
+    u_hat = np.squeeze(u_hat, axis=-1)
+    interval_low = u_hat - 1.96 * se_pred
+    interval_high = u_hat + 1.96 * se_pred
     print(f"pred interval low: {interval_low}")
     print(f"pred interval high: {interval_high}")
     print(f"pred interval low / high shape: {interval_low.shape}")
@@ -143,8 +142,9 @@ def main():
     # print(se_pred.shape)
 
     # TODO plot the torque prediction error for each joint (optional)
+    MSE = RSS / n
     plt.figure()
-    plt.plot(r2_adj, "b", label="q")
+    plt.plot(MSE, "b", label="q")
     plt.title("R2")
     plt.xlabel("joint id")
     plt.ylabel("R2")

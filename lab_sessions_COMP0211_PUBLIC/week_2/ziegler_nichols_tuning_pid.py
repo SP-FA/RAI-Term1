@@ -108,7 +108,7 @@ def simulate_with_given_pid_values(sim_, kp, joints_id, regulation_displacement=
     q_mes_all_ = q_mes_all[:-1]
     q_mes_amplitude = q_mes_all_[q_mes_mask]
     q_mes_amplitude = np.abs(q_mes_amplitude - 1)
-    std = np.std(q_mes_amplitude)
+    var = np.var(q_mes_amplitude)
     if plot is True:
         plt.figure()
         # plt.plot(qd_mes_all, "r", label="qd")
@@ -119,7 +119,7 @@ def simulate_with_given_pid_values(sim_, kp, joints_id, regulation_displacement=
         plt.grid(True)
         plt.show()
     
-    return q_mes_all, std
+    return q_mes_all, var
      
 
 
@@ -144,8 +144,11 @@ def perform_frequency_analysis(data, dt, plot=False):
 
 
 # TODO Implement the table in thi function
-def thi_fuc(Ku, freq):
-    Tu = 1 / np.max(freq)
+def thi_fuc(Ku, freq, power):
+    power = power[1:]
+    freq = freq[1:]
+    dominant_freq = freq[np.argmax(power)]
+    Tu = 1 / dominant_freq
     Kd = 0.1 * Ku * Tu
     Td = 0.125 * Tu
     Kp = 0.8 * Ku
@@ -154,8 +157,8 @@ def thi_fuc(Ku, freq):
 
 
 if __name__ == '__main__':
-    joint_id = 1  # Joint ID to tune
-    regulation_displacement = 0.5  # Displacement from the initial joint position
+    joint_id = 0  # Joint ID to tune
+    regulation_displacement = 1  # Displacement from the initial joint position
     init_gain=1
     gain_step=1.5 
     max_gain=30
@@ -164,18 +167,20 @@ if __name__ == '__main__':
 
     # TODO using simulate_with_given_pid_values() and perform_frequency_analysis() write you code to test different Kp values 
     # for each joint, bring the system to oscillation and compute the the PD parameters using the Ziegler-Nichols methodplt.figure()
-    # 0: 14.5    2: 13.5  3: 11  4: 16.7  5: 16.3  6: 16.6
-    std_all = []
+    # 0: 16    2: 13.5  3: 11  4: 16.7  5: 16.3  6: 16.6
+    var_all = []
     gain_all = []
     freq_all = []
+    power_all = []
     while init_gain < max_gain:
-        res, std = simulate_with_given_pid_values(sim, init_gain, joint_id, regulation_displacement, test_duration, False)
-        std_all.append(std)
+        res, var = simulate_with_given_pid_values(sim, init_gain, joint_id, regulation_displacement, test_duration, False)
+        var_all.append(var)
         gain_all.append(init_gain)
         freq, power = perform_frequency_analysis(res, sim.GetTimeStep(), False)
-        freq_all.append(np.max(freq))
+        freq_all.append(freq)
+        power_all.append(power)
         init_gain += gain_step
 
-    idx = np.argmin(std_all)
-    thi_fuc(gain_all[idx], freq_all[idx])
+    idx = np.argmin(var_all)
+    thi_fuc(gain_all[idx], freq_all[idx], power_all[idx])
    
