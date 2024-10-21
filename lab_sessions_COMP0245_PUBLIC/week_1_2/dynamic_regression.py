@@ -94,34 +94,33 @@ def main():
     regressor_all = np.array(regressor_all)  # Y(g, g_d, g_dd), (n, j, p)
     n, j, p = regressor_all.shape
 
-    XT = regressor_all.transpose(1, 2, 0)
-    X  = regressor_all.transpose(1, 0, 2)  # (j, n, p)
-    y = tau_mes_all[:, :, np.newaxis].transpose(1, 0, 2)  # (j, n, 1)
+    X  = regressor_all.reshape((n * j, p))  # (n * j, p)
+    XT = X.T
+    y = tau_mes_all.reshape((n * j))  # (n * j)
 
-    regressor_inv = np.linalg.pinv(X)  # (j, p, n)
-    a = regressor_inv @ y  # (j, p, 1)
-    u_hat = X @ a  # (j, n, 1)
+    regressor_inv = np.linalg.pinv(X)  # (p, n * j)
+    a = regressor_inv @ y  # (p, 1)
+    u_hat = X @ a  # (j)
 
-    a = np.squeeze(a, axis=-1)  # (j, p)
+    # a = np.squeeze(a, axis=-1)  # (p)
     print(f"a: {a}")
     print(f"a_shape: {a.shape}")
     # print(a[:, :, np.newaxis].transpose(1, 0, 2) - beta_hat)
 
     # TODO compute the metrics for the linear model
-    RSS = np.sum((y - u_hat) ** 2, axis=1) + 1e-9  # (j, 1)
-    TSS = np.sum((y - np.mean(y, axis=1)[:, :, np.newaxis]) ** 2, axis=1)# + 1e-9
+    RSS = np.sum((y - u_hat) ** 2, axis=0)  # (1)
+    TSS = np.sum((y - np.mean(y, axis=0)) ** 2, axis=0)  # + 1e-9
 
     r2 = 1 - RSS / TSS
-    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - j - 1))  # (j, 1)
+    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - j - 1))  # (1)
     print(f"r2_adj: {r2_adj}")
 
-    F = (TSS - RSS) * (n - j - 1) / (RSS * j)  # (j, 1)
+    F = (TSS - RSS) * (n - j - 1) / (RSS * j)  # (1)
     print(f"F: {F}")
 
-    sigma2 = RSS / (n - j - 1)  # (j, 1)
-    ex_sigma2 = sigma2[:, np.newaxis]
-    covariance = (XT @ X) * ex_sigma2  # (j, p, p)
-    se_beta = np.sqrt(np.diagonal(np.linalg.pinv(covariance) + 1e-9, axis1=1, axis2=2))
+    sigma2 = RSS / (n - j - 1)  # (1)
+    covariance = (XT @ X) * sigma2  # (p, p)
+    se_beta = np.sqrt(np.diagonal(np.linalg.pinv(covariance)) + 1e-9)
     interval_low  = a - 1.96 * se_beta
     interval_high = a + 1.96 * se_beta
     print(f"params interval low: {interval_low}")
@@ -131,7 +130,7 @@ def main():
     # print(f"se_beta: {se_beta}")
     # print(f"se_beta_shape: {se_beta.shape}")
 
-    se_pred = np.sqrt(np.diagonal(X @ np.linalg.pinv(XT @ X) @ XT + 1, axis1=1, axis2=2) * sigma2)
+    se_pred = np.sqrt(np.diagonal(X @ np.linalg.pinv(XT @ X) @ XT + 1) * sigma2)
     u_hat = np.squeeze(u_hat, axis=-1)
     interval_low = u_hat - 1.96 * se_pred
     interval_high = u_hat + 1.96 * se_pred

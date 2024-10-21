@@ -54,13 +54,15 @@ def getSystemMatrices(sim, num_joints, damping_coefficients=None):
     
     # TODO: Finish the system matrices
     A = np.eye(num_states)
-    for i in range(0, num_controls, 2):
-        A[i, i + 1] = time_step
+    A[:num_controls, num_controls:] = np.eye(num_controls) * time_step
+    # for i in range(0, num_controls, 2):
+    #     A[i, i + 1] = time_step
     # print(A)
 
     B = np.zeros((num_states, num_controls))
-    for i in range(0, num_controls):
-        B[i * 2 + 1, i] = time_step
+    B[num_controls:, :] = np.eye(num_controls) * time_step
+    # for i in range(0, num_controls):
+    #     B[i * 2 + 1, i] = time_step
     # print(B)
     return A, B
 
@@ -77,8 +79,8 @@ def getCostMatrices(num_joints):
     num_controls = num_joints
     
     # Q = 1 * np.eye(num_states)  # State cost matrix
-    Q = 1000 * np.eye(num_states)
-    Q[num_joints:, num_joints:] = 0.0
+    Q = 1 * np.eye(num_states)
+    # Q[num_joints:, num_joints:] = 0.0
     
     R = 0.1 * np.eye(num_controls)  # Control input cost matrix
     
