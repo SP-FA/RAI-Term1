@@ -75,6 +75,9 @@ class RobotEstimator(object):
         V = self._config.V
 
         # Predict the new state
+        # print(self._x_est)
+        # print(v_c)
+        # print(omega_c)
         self._x_pred = self._x_est + np.array([
             v_c * np.cos(self._x_est[2]) * dt,
             v_c * np.sin(self._x_est[2]) * dt,

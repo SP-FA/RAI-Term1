@@ -155,9 +155,11 @@ for step in range(sim_config.time_steps):
     estimator.predict_to(simulation_time)
 
     # Get the landmark observations.
+    # y = simulator.landmark_range_observations()
     y = simulator.landmark_range_bearing_observations()
 
     # Update the filter with the latest observations.
+    # estimator.update_from_landmark_range_observations(y)
     estimator.update_from_landmark_range_bearing_observations(y)
 
     # Get the current state estimate.
