@@ -204,6 +204,7 @@ def wrap_angle(angle): return np.arctan2(np.sin(angle), np.cos(angle))
 state_name = ['x', 'y', 'θ']
 estimation_error = x_est_history - x_true_history
 estimation_error[:, -1] = wrap_angle(estimation_error[:, -1])
+
 for s in range(3):
     plt.figure()
     two_sigma = 2*np.sqrt(Sigma_est_history[:, s])

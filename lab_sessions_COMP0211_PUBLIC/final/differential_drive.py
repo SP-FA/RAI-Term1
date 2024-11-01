@@ -165,6 +165,7 @@ def main():
         # Measurements of the current state (real measurements with noise) ##################################################################
         base_pos = sim.GetBasePosition()
         base_ori = sim.GetBaseOrientation()
+        print(base_ori)
         base_bearing_ = quaternion2bearing(base_ori[3], base_ori[0], base_ori[1], base_ori[2])
         y = landmark_range_observations(base_pos)
 

@@ -164,24 +164,35 @@ class RobotEstimator(object):
             range_pred = np.sqrt(dx_pred**2 + dy_pred ** 2)
 
             bearing_pred = np.arctan2(dy_pred, dx_pred) - x_pred[2]
-            bearing_pred = np.arctan2(np.sin(bearing_pred), np.cos(bearing_pred))  #
+            bearing_pred = np.arctan2(np.sin(bearing_pred), np.cos(bearing_pred))
             y_pred.append([range_pred, bearing_pred])
 
-            C_range_bearing = np.array([
-                [-dx_pred / range_pred, -dy_pred / range_pred, 0],
-                [dy_pred / (range_pred ** 2), -dx_pred / (range_pred ** 2), -1]
+            C_range = np.array([
+                -dx_pred / range_pred,
+                -dy_pred / range_pred,
+                0,
             ])
-            C.append(C_range_bearing)
+
+            C_bearing = np.array([
+                dy_pred / (range_pred ** 2),
+                -dx_pred / (range_pred ** 2),
+                -1,
+            ])
+            C.append(C_range)
+            C.append(C_bearing)
+
         y_pred = np.array(y_pred)
         C = np.array(C)
 
         nu = y_range_bearing - y_pred
         nu[:, 1] = np.arctan2(np.sin(nu[:, 1]), np.cos(nu[:, 1]))
+        nu = np.column_stack((nu[:, 0], nu[:, 1])).flatten()  # (6, )
 
-        W_landmarks = np.diag([self._config.W_range, self._config.W_bearing])
-        W_landmarks = np.repeat(W_landmarks[np.newaxis, :, :], len(self._map.landmarks), axis=0)
+        W_landmarks = np.eye(C.shape[0]) * self._config.W_range
+        for i in range(C.shape[0]):
+            if i % 2 == 1:
+                W_landmarks[i, i] = self._config.W_bearing
 
-        for i in range(len(self._map.landmarks)):
-            self._do_kf_update(nu[i], C[i], W_landmarks[i])
+        self._do_kf_update(nu, C, W_landmarks)
         self._x_est[-1] = np.arctan2(np.sin(self._x_est[-1]), np.cos(self._x_est[-1]))
 
