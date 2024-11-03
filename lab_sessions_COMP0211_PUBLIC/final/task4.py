@@ -2,24 +2,26 @@ import numpy as np
 import time
 import os
 import matplotlib.pyplot as plt
-from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, SinusoidalReference, \
-    CartesianDiffKin, differential_drive_controller_adjusting_bearing
-from simulation_and_control import differential_drive_regulation_controller, regulation_polar_coordinates, \
-    regulation_polar_coordinate_quat, wrap_angle, velocity_to_wheel_angular_velocity
+from simulation_and_control import pb, MotorCommands, PinWrapper, feedback_lin_ctrl, SinusoidalReference, CartesianDiffKin, differential_drive_controller_adjusting_bearing
+from simulation_and_control import differential_drive_regulation_controller,regulation_polar_coordinates,regulation_polar_coordinate_quat,wrap_angle,velocity_to_wheel_angular_velocity
 import pinocchio as pin
 from regulator_model import RegulatorModel
-
 from robot_localization_system import FilterConfiguration, Map, RobotEstimator
 
 # global variables
 W_range = 0.5 ** 2  # Measurement noise variance (range measurements)
+
+# initial
+Sigma0 = np.diag([1.0, 1.0, 0.5]) ** 2
+x0 = np.array([2.0, 3.0, np.pi / 4])
+
 landmarks = np.array([
-    [5, 10],
-    [15, 5],
-    [10, 15],
-])
+            [5, 10],
+            [15, 5],
+            [10, 15]
+        ])
 
-
+# WE CHANGED THE FUNCTION IN THE LAST COMMIT (1 novemeber 2024, 16:45)
 def landmark_range_observations(base_position):
     y = []
     C = []
@@ -60,43 +62,46 @@ def init_simulator(conf_file_name):
     """Initialize simulation and dynamic model."""
     cur_dir = os.path.dirname(os.path.abspath(__file__))
     sim = pb.SimInterface(conf_file_name, conf_file_path_ext=cur_dir)
-
+    
     ext_names = np.expand_dims(np.array(sim.getNameActiveJoints()), axis=0)
     source_names = ["pybullet"]
-
+    
     dyn_model = PinWrapper(conf_file_name, "pybullet", ext_names, source_names, False, 0, cur_dir)
     num_joints = dyn_model.getNumberofActuatedJoints()
-
+    
     return sim, dyn_model, num_joints
 
 
-def main():
+def test(init_pos, target_pos, mode):
     # Configuration for the simulation
     conf_file_name = "robotnik.json"  # Configuration file for the robot
-    sim, dyn_model, num_joints = init_simulator(conf_file_name)
+    sim,dyn_model,num_joints=init_simulator(conf_file_name)
 
     # adjusting floor friction
-    floor_friction = 100
+    floor_friction = 1
     sim.SetFloorFriction(floor_friction)
     # getting time step
     time_step = sim.GetTimeStep()
     current_time = 0
 
+   
     # Initialize data storage
-    base_pos_all, base_bearing_all = [], []  #
+    base_pos_all, base_bearing_all = [], []#
     base_pos_true_all, base_bearing_true_all = [], []
     x_est_history = []
     Sigma_est_history = []
+    steady_state_errors = []
 
     # initializing MPC
-    # Define the matrices
+     # Define the matrices
     num_states = 3
     num_controls = 2
-
+   
+    
     # Measuring all the state
-
+    
     C = np.eye(num_states)
-
+    
     # Horizon length
     N_mpc = 10
 
@@ -108,23 +113,23 @@ def main():
     # or you can linearize around the current state and control of the robot
     # in the second case case you need to update the matrices A and B at each time step
     # and recall everytime the method updateSystemMatrices
-    init_pos = np.array([2.0, 3.0])
-    init_quat = np.array([0, 0, 0.3827, 0.9239])
+    # Define the cost matrices
+    Qcoeff = np.array([220,1000,1020])
+    Rcoeff = 1.3
+    regulator.setCostMatrices(Qcoeff,Rcoeff)
+
+    # init_pos  = np.array([2.0, 3.0])
+    init_quat = np.array([0,0,0.3827,0.9239])
     init_base_bearing_ = quaternion2bearing(init_quat[3], init_quat[0], init_quat[1], init_quat[2])
     cur_state_x_for_linearization = [init_pos[0], init_pos[1], init_base_bearing_]
     cur_u_for_linearization = np.zeros(num_controls)
-    regulator.updateSystemMatrices(sim, cur_state_x_for_linearization, cur_u_for_linearization)
-    # Define the cost matrices
-    Qcoeff = np.array([310, 310, 80.0])
-    Rcoeff = 0.5
-    regulator.setCostMatrices(Qcoeff, Rcoeff)
-
+    regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
     u_mpc = np.zeros(num_controls)
 
     ##### robot parameters ########
     wheel_radius = 0.11
     wheel_base_width = 0.46
-
+  
     ##### MPC control action #######
     v_linear = 0.0
     v_angular = 0.0
@@ -146,7 +151,6 @@ def main():
     time = 0
 
     while True:
-
         # True state propagation (with process noise)
         ##### advance simulation ##################################################################
         sim.Step(cmd, "torque")
@@ -155,15 +159,15 @@ def main():
         # Kalman filter prediction
         estimator.set_control_input(u_mpc)
         estimator.predict_to(current_time)
-
+       
+    
         # Get the measurements from the simulator ###########################################
-        # measurements of the robot without noise (just for comparison purpose) #############
+         # measurements of the robot without noise (just for comparison purpose) #############
         base_pos_no_noise = sim.bot[0].base_position
         base_ori_no_noise = sim.bot[0].base_orientation
-        base_bearing_no_noise_ = quaternion2bearing(base_ori_no_noise[3], base_ori_no_noise[0], base_ori_no_noise[1],
-                                                    base_ori_no_noise[2])
-        base_lin_vel_no_noise = sim.bot[0].base_lin_vel
-        base_ang_vel_no_noise = sim.bot[0].base_ang_vel
+        base_bearing_no_noise_ = quaternion2bearing(base_ori_no_noise[3], base_ori_no_noise[0], base_ori_no_noise[1], base_ori_no_noise[2])
+        base_lin_vel_no_noise  = sim.bot[0].base_lin_vel
+        base_ang_vel_no_noise  = sim.bot[0].base_ang_vel
 
         base_pos_true_all.append(base_pos_no_noise)
         base_bearing_true_all.append(base_bearing_no_noise_)
@@ -171,8 +175,8 @@ def main():
         base_pos = sim.GetBasePosition()
         base_ori = sim.GetBaseOrientation()
         base_bearing_ = quaternion2bearing(base_ori[3], base_ori[0], base_ori[1], base_ori[2])
-
-        y = landmark_range_observations(base_pos)
+        # LINES CHANGED IN THE LAST COMMIT (1 novemeber 2024, 16:45)
+        y = landmark_range_observations(base_pos_no_noise)
 
         # Update the filter with the latest observations
         estimator.update_from_landmark_range_bearing_observations(y)
@@ -182,33 +186,43 @@ def main():
         x_est[-1] = np.arctan2(np.sin(x_est[-1]), np.cos(x_est[-1]))
         x_est_history.append(x_est)
         Sigma_est_history.append(np.diagonal(Sigma_est))
+        
 
         # Figure out what the controller should do next
         # MPC section/ low level controller section ##################################################################
-
+       
+   
         # Compute the matrices needed for MPC optimization
         # TODO here you want to update the matrices A and B at each time step if you want to linearize around the current points
-        # add this 3 lines if you want to update the A and B matrices at each time step
-        # cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
-        # cur_u_for_linearization = u_mpc
-        # regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
+        # add this 3 lines if you want to update the A and B matrices at each time step 
+        cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
+        cur_u_for_linearization = u_mpc
+
+
+
+        regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
+
+        # regulator.Controllability_analysis()#controllability analysis
+
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
-        H, F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
-        x0_mpc = np.hstack((base_pos[:2], base_bearing_))
-        x0_mpc = x0_mpc.flatten()
-        # x0_mpc = x_est
+        H,F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
+        if mode == "MPCT":
+            x0_mpc = np.hstack((base_pos[:2], base_bearing_))
+            x0_mpc = x0_mpc.flatten()
+        elif mode == "MPCK":
+            x0_mpc = x_est
+
         # Compute the optimal control sequence
         H_inv = np.linalg.inv(H)
         u_mpc = -H_inv @ F @ x0_mpc
         # Return the optimal control sequence
-        u_mpc = u_mpc[0:num_controls]
+        u_mpc = u_mpc[0:num_controls] 
         # Prepare control command to send to the low level controller
-        left_wheel_velocity, right_wheel_velocity = velocity_to_wheel_angular_velocity(u_mpc[0], u_mpc[1],
-                                                                                       wheel_base_width, wheel_radius)
-        angular_wheels_velocity_cmd = np.array(
-            [right_wheel_velocity, left_wheel_velocity, left_wheel_velocity, right_wheel_velocity])
+        left_wheel_velocity,right_wheel_velocity=velocity_to_wheel_angular_velocity(u_mpc[0],u_mpc[1], wheel_base_width, wheel_radius)
+        angular_wheels_velocity_cmd = np.array([right_wheel_velocity, left_wheel_velocity, left_wheel_velocity, right_wheel_velocity])
         interface_all_wheels = ["velocity", "velocity", "velocity", "velocity"]
         cmd.SetControlCmd(angular_wheels_velocity_cmd, interface_all_wheels)
+
 
         # Exit logic with 'q' key (unchanged)
         keys = sim.GetPyBulletClient().getKeyboardEvents()
@@ -216,64 +230,112 @@ def main():
         if qKey in keys and keys[qKey] and sim.GetPyBulletClient().KEY_WAS_TRIGGERED:
             break
 
+
+
         # Store data for plotting if necessary
-        base_pos_all.append(base_pos)
-        base_bearing_all.append(base_bearing_)
+        # WE CHANGED THIS TWO LINES IN THE LAST COMMIT 
+        # base_pos_all.append(base_pos_no_noise)
+        # base_bearing_all.append(base_bearing_no_noise_)
+        # base_pos_all.append(base_pos)
 
         # Update current time
         current_time += time_step
 
+        error = np.sqrt((target_pos[0] - x_est[0]) ** 2 + (target_pos[1] - x_est[1]) ** 2)
+        print(error)
+        steady_state_errors.append(np.linalg.norm(error))
+
+        if np.linalg.norm(error) < 0.003:
+            break
+
     # Plotting
     # add visualization of final x, y, trajectory and theta
-    plt.figure()
-    base_pos_all = np.array(base_pos_all)
-    base_pos_true_all = np.array(base_pos_true_all)
+    # plt.figure()
+    # base_pos_all = np.array(base_pos_all)
+    # base_pos_true_all = np.array(base_pos_true_all)
     x_est_history = np.array(x_est_history)
-    Sigma_est_history = np.array(Sigma_est_history)
-    two_sigma = 2 * np.sqrt(Sigma_est_history[:, 0])
-    # plt.plot(base_pos_all[:, 0], label="X")
-    plt.plot(x_est_history[:, 0], label="Estimation")
-    plt.plot(base_pos_true_all[:, 0], label="Ground Truth")
-    # plt.plot(two_sigma, linestyle='dashed', color='red')
-    # plt.plot(-two_sigma, linestyle='dashed', color='red')
-    plt.xlabel("Time")
-    plt.ylabel("X Position")
-    plt.legend()
-    plt.show()
+    # # Sigma_est_history = np.array(Sigma_est_history)
+    # # two_sigma = 2 * np.sqrt(Sigma_est_history[:, 0])
+    # # plt.plot(base_pos_all[:, 0], label="X")
+    # plt.plot(x_est_history[:, 0], label="Estimation")
+    # plt.plot(base_pos_true_all[:, 0], label="Ground Truth")
+    # # plt.plot(two_sigma, linestyle='dashed', color='red')
+    # # plt.plot(-two_sigma, linestyle='dashed', color='red')
+    # plt.xlabel("Time")
+    # plt.ylabel("X Position")
+    # plt.legend()
+    # plt.show()
+    #
+    # plt.figure()
+    # # plt.plot(base_pos_all[:, 1], label="Y")
+    # # two_sigma = 2 * np.sqrt(Sigma_est_history[:, 1])
+    # plt.plot(x_est_history[:, 1], label="Estimation")
+    # plt.plot(base_pos_true_all[:, 1], label="Ground Truth")
+    # # plt.plot(two_sigma, linestyle='dashed', color='red')
+    # # plt.plot(-two_sigma, linestyle='dashed', color='red')
+    # plt.xlabel("Time")
+    # plt.ylabel("Y Position")
+    # plt.legend()
+    # plt.show()
+    #
+    # plt.figure()
+    # # plt.plot(base_pos_all[:, 2], label="Theta")
+    # # two_sigma = 2 * np.sqrt(Sigma_est_history[:, 2])
+    # plt.plot(x_est_history[:, 2], label="Estimation")
+    # plt.plot(base_pos_true_all[:, 2], label="Ground Truth")
+    # # plt.plot(two_sigma, linestyle='dashed', color='red')
+    # # plt.plot(-two_sigma, linestyle='dashed', color='red')
+    # plt.xlabel("Time")
+    # plt.ylabel("Theta")
+    # plt.legend()
+    # plt.show()
+    #
+    # plt.figure()
+    # # plt.plot(base_pos_all[:, 0], base_pos_all[:, 1], label="Trajectory")
+    # plt.plot(x_est_history[:, 0], x_est_history[:, 1], label="Estimation")
+    # plt.plot(base_pos_true_all[:, 0], base_pos_true_all[:, 1], label="Ground Truth")
+    # plt.xlabel("X Position")
+    # plt.ylabel("Y Position")
+    # plt.legend()
+    # plt.show()
 
-    plt.figure()
-    # plt.plot(base_pos_all[:, 1], label="Y")
-    two_sigma = 2 * np.sqrt(Sigma_est_history[:, 1])
-    plt.plot(x_est_history[:, 1], label="Estimation")
-    plt.plot(base_pos_true_all[:, 1], label="Ground Truth")
-    # plt.plot(two_sigma, linestyle='dashed', color='red')
-    # plt.plot(-two_sigma, linestyle='dashed', color='red')
-    plt.xlabel("Time")
-    plt.ylabel("Y Position")
-    plt.legend()
-    plt.show()
+    return x_est_history, current_time, np.array(steady_state_errors)
 
-    plt.figure()
-    # plt.plot(base_pos_all[:, 2], label="Theta")
-    two_sigma = 2 * np.sqrt(Sigma_est_history[:, 2])
-    plt.plot(x_est_history[:, 2], label="Estimation")
-    plt.plot(base_pos_true_all[:, 2], label="Ground Truth")
-    # plt.plot(two_sigma, linestyle='dashed', color='red')
-    # plt.plot(-two_sigma, linestyle='dashed', color='red')
-    plt.xlabel("Time")
-    plt.ylabel("Theta")
-    plt.legend()
-    plt.show()
-
-    plt.figure()
-    # plt.plot(base_pos_all[:, 0], base_pos_all[:, 1], label="Trajectory")
-    plt.plot(x_est_history[:, 0], x_est_history[:, 1], label="Estimation")
-    plt.plot(base_pos_true_all[:, 0], base_pos_true_all[:, 1], label="Ground Truth")
-    plt.xlabel("X Position")
-    plt.ylabel("Y Position")
-    plt.legend()
-    plt.show()
-
+    
 
 if __name__ == '__main__':
-    main()
+    initial_positions = np.array([[1.0, 3.0], [5.0, 5.0], [10.0, 10.0]])
+    x_est_all = []
+    cur_time_all = []
+    err_all = []
+    for i in range(len(initial_positions)):
+        x_est, cur_time, err = test(initial_positions[i], [0, 0], "MPCT")
+        x_est_all.append(x_est)
+        cur_time_all.append(cur_time)
+        err_all.append(err)
+
+    for i in range(len(initial_positions)):
+        x_est, cur_time, err = test(initial_positions[i], [0, 0], "MPCK")
+        x_est_all.append(x_est)
+        cur_time_all.append(cur_time)
+        err_all.append(err)
+
+    print(cur_time_all)
+
+    for i in range(len(initial_positions)):
+        plt.figure()
+        plt.plot(x_est_all[i][:, 0], label="MPCT")
+        plt.plot(x_est_all[i+3][:, 0], label="MPCK")
+        plt.xlabel("Time")
+        plt.ylabel("X Position")
+        plt.legend()
+        plt.show()
+
+    for i in range(len(initial_positions)):
+        plt.figure()
+        plt.plot(err_all[i], label="MPCT")
+        plt.plot(err_all[i + 3], label="MPCK")
+        plt.xlabel("Time")
+        plt.ylabel("Error")
+        plt.legend()
+        plt.show()
