@@ -243,9 +243,9 @@ def test(init_pos, target_pos, mode):
 
         error = np.sqrt((target_pos[0] - x_est[0]) ** 2 + (target_pos[1] - x_est[1]) ** 2)
         print(error)
-        steady_state_errors.append(np.linalg.norm(error))
+        steady_state_errors.append(error)
 
-        if np.linalg.norm(error) < 0.003:
+        if error < 0.003:
             break
 
     # Plotting
