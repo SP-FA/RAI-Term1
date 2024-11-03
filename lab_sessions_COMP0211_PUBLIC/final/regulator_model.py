@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.linalg import solve_discrete_are
 
 
 class RegulatorModel:
@@ -8,6 +9,7 @@ class RegulatorModel:
         self.C = None
         self.Q = None
         self.R = None
+        self.P = None
         self.N = N
         self.q = q  # output dimension
         self.m = m  # input dimension
@@ -36,6 +38,13 @@ class RegulatorModel:
             T_bar[(k - 1) * self.q:k * self.q, :self.n] = np.dot(self.C, np.linalg.matrix_power(self.A, k))
 
             Q_bar[(k - 1) * self.q:k * self.q, (k - 1) * self.q:k * self.q] = self.Q
+
+            # if k < self.N:
+            #     Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.Q
+            # else:
+
+            #     Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.P
+
             R_bar[(k - 1) * self.m:k * self.m, (k - 1) * self.m:k * self.m] = self.R
 
         return S_bar, T_bar, Q_bar, R_bar
@@ -70,112 +79,21 @@ class RegulatorModel:
         num_controls = self.m
         num_outputs = self.q
         delta_t = sim.GetTimeStep()
-        v0 = cur_u[0]
-        theta0 = cur_x[2]
+        ve = cur_u[0]
+        thetae = cur_x[2]
         # get A and B matrices by linearinzing the cotinuous system dynamics
-        # The linearized continuous-time system is:
-
-        # \[
-        # \dot{\mathbf{x}} = A_c (\mathbf{x} - \mathbf{x}_0) + B_c (\mathbf{u} - \mathbf{u}_0).
-        # \]
-
-        # \textbf{Compute \( A_c = \left. \dfrac{\partial \mathbf{f}}{\partial \mathbf{x}} \right|_{(\mathbf{x}_0, \mathbf{u}_0)} \):}
-
-        # \[
-        # A_c = \begin{bmatrix}
-        # \frac{\partial \dot{x}}{\partial x} & \frac{\partial \dot{x}}{\partial y} & \frac{\partial \dot{x}}{\partial \theta} \\
-        # \frac{\partial \dot{y}}{\partial x} & \frac{\partial \dot{y}}{\partial y} & \frac{\partial \dot{y}}{\partial \theta} \\
-        # \frac{\partial \dot{\theta}}{\partial x} & \frac{\partial \dot{\theta}}{\partial y} & \frac{\partial \dot{\theta}}{\partial \theta}
-        # \end{bmatrix}.
-        # \]
-
-        # Compute the partial derivatives:
-
-        # \begin{align*}
-        # \frac{\partial \dot{x}}{\partial x} &= 0, & \frac{\partial \dot{x}}{\partial y} &= 0, & \frac{\partial \dot{x}}{\partial \theta} &= -v_0 \sin(\theta_0), \\
-        # \frac{\partial \dot{y}}{\partial x} &= 0, & \frac{\partial \dot{y}}{\partial y} &= 0, & \frac{\partial \dot{y}}{\partial \theta} &= v_0 \cos(\theta_0), \\
-        # \frac{\partial \dot{\theta}}{\partial x} &= 0, & \frac{\partial \dot{\theta}}{\partial y} &= 0, & \frac{\partial \dot{\theta}}{\partial \theta} &= 0.
-        # \end{align*}
-
-        # Thus,
-
-        # \[
-        # A_c = \begin{bmatrix}
-        # 0 & 0 & -v_0 \sin(\theta_0) \\
-        # 0 & 0 & v_0 \cos(\theta_0) \\
-        # 0 & 0 & 0
-        # \end{bmatrix}.
-        # \]
-
-        # \textbf{Compute \( B_c = \left. \dfrac{\partial \mathbf{f}}{\partial \mathbf{u}} \right|_{(\mathbf{x}_0, \mathbf{u}_0)} \):}
-
-        # \[
-        # B_c = \begin{bmatrix}
-        # \frac{\partial \dot{x}}{\partial v} & \frac{\partial \dot{x}}{\partial \omega} \\
-        # \frac{\partial \dot{y}}{\partial v} & \frac{\partial \dot{y}}{\partial \omega} \\
-        # \frac{\partial \dot{\theta}}{\partial v} & \frac{\partial \dot{\theta}}{\partial \omega}
-        # \end{bmatrix}.
-        # \]
-
-        # Compute the partial derivatives:
-
-        # \begin{align*}
-        # \frac{\partial \dot{x}}{\partial v} &= \cos(\theta_0), & \frac{\partial \dot{x}}{\partial \omega} &= 0, \\
-        # \frac{\partial \dot{y}}{\partial v} &= \sin(\theta_0), & \frac{\partial \dot{y}}{\partial \omega} &= 0, \\
-        # \frac{\partial \dot{\theta}}{\partial v} &= 0, & \frac{\partial \dot{\theta}}{\partial \omega} &= 1.
-        # \end{align*}
-
-        # Thus,
-
-        # \[
-        # B_c = \begin{bmatrix}
-        # \cos(\theta_0) & 0 \\
-        # \sin(\theta_0) & 0 \\
-        # 0 & 1
-        # \end{bmatrix}.
-        # \]
-
-        # then linearize A and B matrices
-        # \[
-        # A = I + \Delta t \cdot A_c,
-        # \]
-        # \[
-        # B = \Delta t \cdot B_c,
-        # \]
-
-        # where \( I \) is the identity matrix.
-
-        # Compute \( A \):
-
-        # \[
-        # A = \begin{bmatrix}
-        # 1 & 0 & -v_0 \Delta t \sin(\theta_0) \\
-        # 0 & 1 & v_0 \Delta t \cos(\theta_0) \\
-        # 0 & 0 & 1
-        # \end{bmatrix}.
-        # \]
-
-        # Compute \( B \):
-
-        # \[
-        # B = \begin{bmatrix}
-        # \Delta t \cos(\theta_0) & 0 \\
-        # \Delta t \sin(\theta_0) & 0 \\
-        # 0 & \Delta t
-        # \end{bmatrix}.
-        # \]
 
         # updating the state and control input matrices
         A_c = np.array([
-            [0, 0, -v0 * np.sin(theta0)],
-            [0, 0, v0 * np.cos(theta0)],
+            [0, 0, -ve * np.sin(thetae)],
+            [0, 0, ve * np.cos(thetae)],
             [0, 0, 0]
         ])
 
         # Continuous-time control matrix B_c
         B_c = np.array([
-            [np.cos(theta0), 0],
-            [np.sin(theta0), 0],
+            [np.cos(thetae), 0],
+            [np.sin(thetae), 0],
             [0, 1]
         ])
 
@@ -190,6 +108,7 @@ class RegulatorModel:
         self.A = A
         self.B = B
         self.C = np.eye(num_outputs)
+        # self.P = solve_discrete_are(self.A, self.B, self.Q, self.R)
 
     # TODO you can change this function to allow for more passing a vector of gains
     def setCostMatrices(self, Qcoeff, Rcoeff):
@@ -243,3 +162,24 @@ class RegulatorModel:
         # Assign the matrices to the object's attributes
         self.Q = Q
         self.R = R
+
+    def Controllability_analysis(self):
+        n = self.A.shape[0]
+
+        # Construct the controllability matrix
+        controllability_matrix = self.B
+        for i in range(1, n):
+            AB = np.linalg.matrix_power(self.A, i).dot(self.B)
+            controllability_matrix = np.hstack((controllability_matrix, AB))
+
+        # Compute the rank
+        rank_of_controllability = np.linalg.matrix_rank(controllability_matrix)
+
+        print("Controllability Matrix:")
+        print(controllability_matrix)
+        print("\nRank of Controllability Matrix:", rank_of_controllability)
+
+        if rank_of_controllability == n:
+            print("The system is controllable.")
+        else:
+            print("The system is not controllable.")

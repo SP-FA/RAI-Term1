@@ -30,7 +30,11 @@ def landmark_range_observations(base_position):
         dy = lm[1] - base_position[1]
         range_meas = np.sqrt(dx ** 2 + dy ** 2)
 
-        y.append(range_meas)
+        bearing_true = np.arctan2(dy, dx) - base_position[2]
+        # bearing_true = bearing_true + np.random.normal(0, np.sqrt(Wb))
+        bearing_true = np.arctan2(np.sin(bearing_true), np.cos(bearing_true))  #
+        y.append([range_meas, bearing_true])
+        # y.append(range_meas)
 
     y = np.array(y)
     return y
@@ -82,6 +86,7 @@ def main():
     base_pos_all, base_bearing_all = [], []  #
     base_pos_true_all, base_bearing_true_all = [], []
     x_est_history = []
+    Sigma_est_history = []
 
     # initializing MPC
     # Define the matrices
@@ -138,7 +143,7 @@ def main():
     estimator = RobotEstimator(filter_config, map)
     estimator.start()
     x_est, Sigma_est = estimator.estimate()
-    u_mpc = [0, 0]
+    time = 0
 
     while True:
 
@@ -148,8 +153,9 @@ def main():
         time_step = sim.GetTimeStep()
 
         # Kalman filter prediction
-        estimator.set_control_input([u_mpc[0], u_mpc[1]])
-        estimator.predict_to(time_step)
+        time += time_step
+        estimator.set_control_input(u_mpc)
+        estimator.predict_to(time)
 
         # Get the measurements from the simulator ###########################################
         # measurements of the robot without noise (just for comparison purpose) #############
@@ -165,16 +171,18 @@ def main():
         # Measurements of the current state (real measurements with noise) ##################################################################
         base_pos = sim.GetBasePosition()
         base_ori = sim.GetBaseOrientation()
-        print(base_ori)
         base_bearing_ = quaternion2bearing(base_ori[3], base_ori[0], base_ori[1], base_ori[2])
+
         y = landmark_range_observations(base_pos)
 
         # Update the filter with the latest observations
-        estimator.update_from_landmark_range_observations(y)
+        estimator.update_from_landmark_range_bearing_observations(y)
 
         # Get the current state estimate
         x_est, Sigma_est = estimator.estimate()
+        x_est[-1] = np.arctan2(np.sin(x_est[-1]), np.cos(x_est[-1]))
         x_est_history.append(x_est)
+        Sigma_est_history.append(np.diagonal(Sigma_est))
 
         # Figure out what the controller should do next
         # MPC section/ low level controller section ##################################################################
@@ -217,48 +225,50 @@ def main():
 
     # Plotting
     # add visualization of final x, y, trajectory and theta
-    final_position = base_pos_all[-1] if base_pos_all else None
-    final_bearing = base_bearing_all[-1] if base_bearing_all else None
-    final_control_input = u_mpc
-
-    print('Final position:', final_position)
-    print('Final bearing:', final_bearing)
-    print('Final control input (linear velocity, angular velocity):', final_control_input)
-
     plt.figure()
     base_pos_all = np.array(base_pos_all)
     base_pos_true_all = np.array(base_pos_true_all)
     x_est_history = np.array(x_est_history)
-    plt.plot(base_pos_all[:, 0], label="X")
-    plt.plot(base_pos_true_all[:, 0], label="X")
-    plt.plot(x_est_history[:, 0], label="X")
-    plt.xlabel("X Position")
+    Sigma_est_history = np.array(Sigma_est_history)
+    two_sigma = 2 * np.sqrt(Sigma_est_history[:, 0])
+    # plt.plot(base_pos_all[:, 0], label="X")
+    plt.plot(x_est_history[:, 0], label="Estimation")
+    plt.plot(base_pos_true_all[:, 0], label="Ground Truth")
+    # plt.plot(two_sigma, linestyle='dashed', color='red')
+    # plt.plot(-two_sigma, linestyle='dashed', color='red')
+    plt.xlabel("Time")
+    plt.ylabel("X Position")
+    plt.legend()
+    plt.show()
+
+    plt.figure()
+    # plt.plot(base_pos_all[:, 1], label="Y")
+    two_sigma = 2 * np.sqrt(Sigma_est_history[:, 1])
+    plt.plot(x_est_history[:, 1], label="Estimation")
+    plt.plot(base_pos_true_all[:, 1], label="Ground Truth")
+    # plt.plot(two_sigma, linestyle='dashed', color='red')
+    # plt.plot(-two_sigma, linestyle='dashed', color='red')
+    plt.xlabel("Time")
     plt.ylabel("Y Position")
     plt.legend()
     plt.show()
 
     plt.figure()
-    plt.plot(base_pos_all[:, 1], label="Y")
-    plt.plot(base_pos_true_all[:, 1], label="Y")
-    plt.plot(x_est_history[:, 1], label="Y")
-    plt.xlabel("X Position")
-    plt.ylabel("Y Position")
+    # plt.plot(base_pos_all[:, 2], label="Theta")
+    two_sigma = 2 * np.sqrt(Sigma_est_history[:, 2])
+    plt.plot(x_est_history[:, 2], label="Estimation")
+    plt.plot(base_pos_true_all[:, 2], label="Ground Truth")
+    # plt.plot(two_sigma, linestyle='dashed', color='red')
+    # plt.plot(-two_sigma, linestyle='dashed', color='red')
+    plt.xlabel("Time")
+    plt.ylabel("Theta")
     plt.legend()
     plt.show()
 
     plt.figure()
-    plt.plot(base_pos_all[:, 0], base_pos_all[:, 1], label="Trajectory")
-    plt.plot(base_pos_true_all[:, 0], base_pos_true_all[:, 1], label="Trajectory")
-    plt.plot(x_est_history[:, 0], x_est_history[:, 1], label="Trajectory")
-    plt.xlabel("X Position")
-    plt.ylabel("Y Position")
-    plt.legend()
-    plt.show()
-
-    plt.figure()
-    plt.plot(base_pos_all[:, 2], label="Theta")
-    plt.plot(base_pos_true_all[:, 2], label="Theta")
-    plt.plot(x_est_history[:, 2], label="Theta")
+    # plt.plot(base_pos_all[:, 0], base_pos_all[:, 1], label="Trajectory")
+    plt.plot(x_est_history[:, 0], x_est_history[:, 1], label="Estimation")
+    plt.plot(base_pos_true_all[:, 0], base_pos_true_all[:, 1], label="Ground Truth")
     plt.xlabel("X Position")
     plt.ylabel("Y Position")
     plt.legend()
