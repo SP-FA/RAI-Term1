@@ -72,7 +72,7 @@ def init_simulator(conf_file_name):
     return sim, dyn_model, num_joints
 
 
-def test(init_pos, target_pos, mode):
+def test(mode, target_pos=[0, 0]):
     # Configuration for the simulation
     conf_file_name = "robotnik.json"  # Configuration file for the robot
     sim,dyn_model,num_joints=init_simulator(conf_file_name)
@@ -90,7 +90,7 @@ def test(init_pos, target_pos, mode):
     base_pos_true_all, base_bearing_true_all = [], []
     x_est_history = []
     Sigma_est_history = []
-    steady_state_errors = []
+    errors = []
 
     # initializing MPC
      # Define the matrices
@@ -118,7 +118,7 @@ def test(init_pos, target_pos, mode):
     Rcoeff = 1.3
     regulator.setCostMatrices(Qcoeff,Rcoeff)
 
-    # init_pos  = np.array([2.0, 3.0])
+    init_pos  = np.array([2.0, 3.0])
     init_quat = np.array([0,0,0.3827,0.9239])
     init_base_bearing_ = quaternion2bearing(init_quat[3], init_quat[0], init_quat[1], init_quat[2])
     cur_state_x_for_linearization = [init_pos[0], init_pos[1], init_base_bearing_]
@@ -148,7 +148,6 @@ def test(init_pos, target_pos, mode):
     estimator = RobotEstimator(filter_config, map)
     estimator.start()
     x_est, Sigma_est = estimator.estimate()
-    time = 0
 
     while True:
         # True state propagation (with process noise)
@@ -159,10 +158,10 @@ def test(init_pos, target_pos, mode):
         # Kalman filter prediction
         estimator.set_control_input(u_mpc)
         estimator.predict_to(current_time)
-       
-    
+
+
         # Get the measurements from the simulator ###########################################
-         # measurements of the robot without noise (just for comparison purpose) #############
+        # measurements of the robot without noise (just for comparison purpose) #############
         base_pos_no_noise = sim.bot[0].base_position
         base_ori_no_noise = sim.bot[0].base_orientation
         base_bearing_no_noise_ = quaternion2bearing(base_ori_no_noise[3], base_ori_no_noise[0], base_ori_no_noise[1], base_ori_no_noise[2])
@@ -184,14 +183,13 @@ def test(init_pos, target_pos, mode):
         # Get the current state estimate
         x_est, Sigma_est = estimator.estimate()
         x_est[-1] = np.arctan2(np.sin(x_est[-1]), np.cos(x_est[-1]))
-        x_est_history.append(x_est)
         Sigma_est_history.append(np.diagonal(Sigma_est))
-        
+
 
         # Figure out what the controller should do next
         # MPC section/ low level controller section ##################################################################
-       
-   
+
+
         # Compute the matrices needed for MPC optimization
         # TODO here you want to update the matrices A and B at each time step if you want to linearize around the current points
         # add this 3 lines if you want to update the A and B matrices at each time step 
@@ -216,7 +214,7 @@ def test(init_pos, target_pos, mode):
         H_inv = np.linalg.inv(H)
         u_mpc = -H_inv @ F @ x0_mpc
         # Return the optimal control sequence
-        u_mpc = u_mpc[0:num_controls] 
+        u_mpc = u_mpc[0:num_controls]
         # Prepare control command to send to the low level controller
         left_wheel_velocity,right_wheel_velocity=velocity_to_wheel_angular_velocity(u_mpc[0],u_mpc[1], wheel_base_width, wheel_radius)
         angular_wheels_velocity_cmd = np.array([right_wheel_velocity, left_wheel_velocity, left_wheel_velocity, right_wheel_velocity])
@@ -234,108 +232,60 @@ def test(init_pos, target_pos, mode):
 
         # Store data for plotting if necessary
         # WE CHANGED THIS TWO LINES IN THE LAST COMMIT 
-        # base_pos_all.append(base_pos_no_noise)
+        base_pos_all.append(base_pos_no_noise)
         # base_bearing_all.append(base_bearing_no_noise_)
         # base_pos_all.append(base_pos)
 
         # Update current time
         current_time += time_step
 
-        error = np.sqrt((target_pos[0] - x_est[0]) ** 2 + (target_pos[1] - x_est[1]) ** 2)
+        error = np.sqrt((target_pos[0] - base_pos_no_noise[0]) ** 2 + (target_pos[1] - base_pos_no_noise[1]) ** 2)
         print(error)
-        steady_state_errors.append(error)
+        errors.append(error)
 
-        if error < 0.003:
+        if current_time >= 10:
             break
 
-    # Plotting
-    # add visualization of final x, y, trajectory and theta
-    # plt.figure()
-    # base_pos_all = np.array(base_pos_all)
-    # base_pos_true_all = np.array(base_pos_true_all)
-    x_est_history = np.array(x_est_history)
-    # # Sigma_est_history = np.array(Sigma_est_history)
-    # # two_sigma = 2 * np.sqrt(Sigma_est_history[:, 0])
-    # # plt.plot(base_pos_all[:, 0], label="X")
-    # plt.plot(x_est_history[:, 0], label="Estimation")
-    # plt.plot(base_pos_true_all[:, 0], label="Ground Truth")
-    # # plt.plot(two_sigma, linestyle='dashed', color='red')
-    # # plt.plot(-two_sigma, linestyle='dashed', color='red')
-    # plt.xlabel("Time")
-    # plt.ylabel("X Position")
-    # plt.legend()
-    # plt.show()
-    #
-    # plt.figure()
-    # # plt.plot(base_pos_all[:, 1], label="Y")
-    # # two_sigma = 2 * np.sqrt(Sigma_est_history[:, 1])
-    # plt.plot(x_est_history[:, 1], label="Estimation")
-    # plt.plot(base_pos_true_all[:, 1], label="Ground Truth")
-    # # plt.plot(two_sigma, linestyle='dashed', color='red')
-    # # plt.plot(-two_sigma, linestyle='dashed', color='red')
-    # plt.xlabel("Time")
-    # plt.ylabel("Y Position")
-    # plt.legend()
-    # plt.show()
-    #
-    # plt.figure()
-    # # plt.plot(base_pos_all[:, 2], label="Theta")
-    # # two_sigma = 2 * np.sqrt(Sigma_est_history[:, 2])
-    # plt.plot(x_est_history[:, 2], label="Estimation")
-    # plt.plot(base_pos_true_all[:, 2], label="Ground Truth")
-    # # plt.plot(two_sigma, linestyle='dashed', color='red')
-    # # plt.plot(-two_sigma, linestyle='dashed', color='red')
-    # plt.xlabel("Time")
-    # plt.ylabel("Theta")
-    # plt.legend()
-    # plt.show()
-    #
-    # plt.figure()
-    # # plt.plot(base_pos_all[:, 0], base_pos_all[:, 1], label="Trajectory")
-    # plt.plot(x_est_history[:, 0], x_est_history[:, 1], label="Estimation")
-    # plt.plot(base_pos_true_all[:, 0], base_pos_true_all[:, 1], label="Ground Truth")
-    # plt.xlabel("X Position")
-    # plt.ylabel("Y Position")
-    # plt.legend()
-    # plt.show()
-
-    return x_est_history, current_time, np.array(steady_state_errors)
+    return np.array(base_pos_all), np.array(errors)
 
     
 
 if __name__ == '__main__':
-    initial_positions = np.array([[1.0, 3.0], [5.0, 5.0], [10.0, 10.0]])
-    x_est_all = []
-    cur_time_all = []
-    err_all = []
-    for i in range(len(initial_positions)):
-        x_est, cur_time, err = test(initial_positions[i], [0, 0], "MPCT")
-        x_est_all.append(x_est)
-        cur_time_all.append(cur_time)
-        err_all.append(err)
+    # init pos: [5.0, 7.0, 0.0], [1.0, 3.0, 0.0], [10.0, 8.0, 0.0],
+    x_est1, err1 = test("MPCT")
+    x_est2, err2 = test("MPCK")
 
-    for i in range(len(initial_positions)):
-        x_est, cur_time, err = test(initial_positions[i], [0, 0], "MPCK")
-        x_est_all.append(x_est)
-        cur_time_all.append(cur_time)
-        err_all.append(err)
+    plt.figure()
+    plt.plot(np.zeros((len(x_est1[:, 0]))), color="red")
+    plt.plot(x_est1[:, 0], label="MPCT")
+    plt.plot(x_est2[:, 0], label="MPCK")
+    plt.xlabel("Time")
+    plt.ylabel("X Position")
+    plt.legend()
+    plt.show()
 
-    print(cur_time_all)
+    plt.figure()
+    plt.plot(np.zeros((len(x_est1[:, 0]))), color="red")
+    plt.plot(x_est1[:, 1], label="MPCT")
+    plt.plot(x_est2[:, 1], label="MPCK")
+    plt.xlabel("Time")
+    plt.ylabel("Y Position")
+    plt.legend()
+    plt.show()
 
-    for i in range(len(initial_positions)):
-        plt.figure()
-        plt.plot(x_est_all[i][:, 0], label="MPCT")
-        plt.plot(x_est_all[i+3][:, 0], label="MPCK")
-        plt.xlabel("Time")
-        plt.ylabel("X Position")
-        plt.legend()
-        plt.show()
+    plt.figure()
+    plt.plot(np.zeros((len(x_est1[:, 0]))), color="red")
+    plt.plot(x_est1[:, 2], label="MPCT")
+    plt.plot(x_est2[:, 2], label="MPCK")
+    plt.xlabel("Time")
+    plt.ylabel("Theta")
+    plt.legend()
+    plt.show()
 
-    for i in range(len(initial_positions)):
-        plt.figure()
-        plt.plot(err_all[i], label="MPCT")
-        plt.plot(err_all[i + 3], label="MPCK")
-        plt.xlabel("Time")
-        plt.ylabel("Error")
-        plt.legend()
-        plt.show()
+    plt.figure()
+    plt.plot(err1, label="MPCT")
+    plt.plot(err2, label="MPCK")
+    plt.xlabel("Time")
+    plt.ylabel("Error")
+    plt.legend()
+    plt.show()

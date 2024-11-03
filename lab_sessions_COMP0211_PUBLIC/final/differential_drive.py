@@ -189,14 +189,14 @@ def main():
         # Compute the matrices needed for MPC optimization
         # TODO here you want to update the matrices A and B at each time step if you want to linearize around the current points
         # add this 3 lines if you want to update the A and B matrices at each time step
-        # cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
-        # cur_u_for_linearization = u_mpc
-        # regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
+        cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
+        cur_u_for_linearization = u_mpc
+        regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
         H, F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
-        x0_mpc = np.hstack((base_pos[:2], base_bearing_))
-        x0_mpc = x0_mpc.flatten()
-        # x0_mpc = x_est
+        # x0_mpc = np.hstack((base_pos[:2], base_bearing_))
+        # x0_mpc = x0_mpc.flatten()
+        x0_mpc = x_est
         # Compute the optimal control sequence
         H_inv = np.linalg.inv(H)
         u_mpc = -H_inv @ F @ x0_mpc
@@ -207,6 +207,7 @@ def main():
                                                                                        wheel_base_width, wheel_radius)
         angular_wheels_velocity_cmd = np.array(
             [right_wheel_velocity, left_wheel_velocity, left_wheel_velocity, right_wheel_velocity])
+        print(angular_wheels_velocity_cmd)
         interface_all_wheels = ["velocity", "velocity", "velocity", "velocity"]
         cmd.SetControlCmd(angular_wheels_velocity_cmd, interface_all_wheels)
 
