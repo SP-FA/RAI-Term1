@@ -42,7 +42,7 @@ class RegulatorModel:
             # if k < self.N:
             #     Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.Q
             # else:
-
+            #
             #     Q_bar[(k-1)*self.q:k*self.q, (k-1)*self.q:k*self.q] = self.P
 
             R_bar[(k - 1) * self.m:k * self.m, (k - 1) * self.m:k * self.m] = self.R

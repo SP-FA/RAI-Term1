@@ -13,11 +13,15 @@ from robot_localization_system import FilterConfiguration, Map, RobotEstimator
 
 # global variables
 W_range = 0.5 ** 2  # Measurement noise variance (range measurements)
-landmarks = np.array([
-    [5, 10],
-    [15, 5],
-    [10, 15],
-])
+# landmarks = np.array([
+#     [5, 10],
+#     [15, 5],
+#     [10, 15]
+# ])
+x_coords = np.arange(-25, 25 + 5, 5)
+y_coords = np.arange(-25, 25 + 5, 5)
+xv, yv = np.meshgrid(x_coords, y_coords)
+landmarks = np.vstack([xv.ravel(), yv.ravel()]).T
 
 
 def landmark_range_observations(base_position):
@@ -172,7 +176,7 @@ def main():
         base_ori = sim.GetBaseOrientation()
         base_bearing_ = quaternion2bearing(base_ori[3], base_ori[0], base_ori[1], base_ori[2])
 
-        y = landmark_range_observations(base_pos)
+        y = landmark_range_observations(base_pos_no_noise)
 
         # Update the filter with the latest observations
         estimator.update_from_landmark_range_bearing_observations(y)
@@ -189,7 +193,7 @@ def main():
         # Compute the matrices needed for MPC optimization
         # TODO here you want to update the matrices A and B at each time step if you want to linearize around the current points
         # add this 3 lines if you want to update the A and B matrices at each time step
-        cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
+        cur_state_x_for_linearization = [x_est[0], x_est[1], x_est[2]]
         cur_u_for_linearization = u_mpc
         regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
@@ -207,7 +211,6 @@ def main():
                                                                                        wheel_base_width, wheel_radius)
         angular_wheels_velocity_cmd = np.array(
             [right_wheel_velocity, left_wheel_velocity, left_wheel_velocity, right_wheel_velocity])
-        print(angular_wheels_velocity_cmd)
         interface_all_wheels = ["velocity", "velocity", "velocity", "velocity"]
         cmd.SetControlCmd(angular_wheels_velocity_cmd, interface_all_wheels)
 
@@ -223,6 +226,7 @@ def main():
 
         # Update current time
         current_time += time_step
+        print(current_time)
 
     # Plotting
     # add visualization of final x, y, trajectory and theta

@@ -19,11 +19,15 @@ class FilterConfiguration(object):
 
 class Map(object):
     def __init__(self):
-        self.landmarks = np.array([
-            [5, 10],
-            [15, 5],
-            [10, 15]
-        ])
+        # self.landmarks = np.array([
+        #     [5, 10],
+        #     [15, 5],
+        #     [10, 15]
+        # ])
+        x_coords = np.arange(-25, 25 + 5, 5)
+        y_coords = np.arange(-25, 25 + 5, 5)
+        xv, yv = np.meshgrid(x_coords, y_coords)
+        self.landmarks = np.vstack([xv.ravel(), yv.ravel()]).T
 
 
 class RobotEstimator(object):

@@ -15,11 +15,22 @@ W_range = 0.5 ** 2  # Measurement noise variance (range measurements)
 Sigma0 = np.diag([1.0, 1.0, 0.5]) ** 2
 x0 = np.array([2.0, 3.0, np.pi / 4])
 
-landmarks = np.array([
-            [5, 10],
-            [15, 5],
-            [10, 15]
-        ])
+# landmarks = np.array([
+#     [5, 10],
+#     [15, 5],
+#     [10, 15],
+#     # [20, 20],
+#     # [0, 0],
+#     # [10, 0],
+#     # [0, 15],
+#     # [20, 10],
+#     # [5, 25],
+#     # [15, 25]
+# ])
+x_coords = np.arange(-25, 25 + 5, 5)
+y_coords = np.arange(-25, 25 + 5, 5)
+xv, yv = np.meshgrid(x_coords, y_coords)
+landmarks = np.vstack([xv.ravel(), yv.ravel()]).T
 
 # WE CHANGED THE FUNCTION IN THE LAST COMMIT (1 novemeber 2024, 16:45)
 def landmark_range_observations(base_position):
@@ -138,16 +149,17 @@ def test(mode, target_pos=[0, 0]):
     init_interface_all_wheels = ["velocity", "velocity", "velocity", "velocity"]
     cmd.SetControlCmd(init_angular_wheels_velocity_cmd, init_interface_all_wheels)
 
-    # EKF
-    filter_config = FilterConfiguration()
-    filter_config.W_range = W_range
-    map = Map()
-    map.landmarks = landmarks
+    if mode == "MPCK":
+        # EKF
+        filter_config = FilterConfiguration()
+        filter_config.W_range = W_range
+        map = Map()
+        map.landmarks = landmarks
 
-    # Create the simulator object and start it.
-    estimator = RobotEstimator(filter_config, map)
-    estimator.start()
-    x_est, Sigma_est = estimator.estimate()
+        # Create the simulator object and start it.
+        estimator = RobotEstimator(filter_config, map)
+        estimator.start()
+        x_est, Sigma_est = estimator.estimate()
 
     while True:
         # True state propagation (with process noise)
@@ -155,9 +167,10 @@ def test(mode, target_pos=[0, 0]):
         sim.Step(cmd, "torque")
         time_step = sim.GetTimeStep()
 
-        # Kalman filter prediction
-        estimator.set_control_input(u_mpc)
-        estimator.predict_to(current_time)
+        if mode == "MPCK":
+            # Kalman filter prediction
+            estimator.set_control_input(u_mpc)
+            estimator.predict_to(current_time)
 
 
         # Get the measurements from the simulator ###########################################
@@ -175,15 +188,16 @@ def test(mode, target_pos=[0, 0]):
         base_ori = sim.GetBaseOrientation()
         base_bearing_ = quaternion2bearing(base_ori[3], base_ori[0], base_ori[1], base_ori[2])
         # LINES CHANGED IN THE LAST COMMIT (1 novemeber 2024, 16:45)
-        y = landmark_range_observations(base_pos_no_noise)
+        if mode == "MPCK":
+            y = landmark_range_observations(base_pos_no_noise)
 
-        # Update the filter with the latest observations
-        estimator.update_from_landmark_range_bearing_observations(y)
+            # Update the filter with the latest observations
+            estimator.update_from_landmark_range_bearing_observations(y)
 
-        # Get the current state estimate
-        x_est, Sigma_est = estimator.estimate()
-        x_est[-1] = np.arctan2(np.sin(x_est[-1]), np.cos(x_est[-1]))
-        Sigma_est_history.append(np.diagonal(Sigma_est))
+            # Get the current state estimate
+            x_est, Sigma_est = estimator.estimate()
+            x_est[-1] = np.arctan2(np.sin(x_est[-1]), np.cos(x_est[-1]))
+            Sigma_est_history.append(np.diagonal(Sigma_est))
 
 
         # Figure out what the controller should do next
@@ -193,22 +207,22 @@ def test(mode, target_pos=[0, 0]):
         # Compute the matrices needed for MPC optimization
         # TODO here you want to update the matrices A and B at each time step if you want to linearize around the current points
         # add this 3 lines if you want to update the A and B matrices at each time step 
-        cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
+
+        if mode == "MPCT":
+            cur_state_x_for_linearization = [base_pos[0], base_pos[1], base_bearing_]
+            x0_mpc = np.hstack((base_pos[:2], base_bearing_))
+            x0_mpc = x0_mpc.flatten()
+        elif mode == "MPCK":
+            cur_state_x_for_linearization = [x_est[0], x_est[1], x_est[2]]
+            x0_mpc = x_est
+
         cur_u_for_linearization = u_mpc
 
-
-
         regulator.updateSystemMatrices(sim,cur_state_x_for_linearization,cur_u_for_linearization)
-
         # regulator.Controllability_analysis()#controllability analysis
 
         S_bar, T_bar, Q_bar, R_bar = regulator.propagation_model_regulator_fixed_std()
         H,F = regulator.compute_H_and_F(S_bar, T_bar, Q_bar, R_bar)
-        if mode == "MPCT":
-            x0_mpc = np.hstack((base_pos[:2], base_bearing_))
-            x0_mpc = x0_mpc.flatten()
-        elif mode == "MPCK":
-            x0_mpc = x_est
 
         # Compute the optimal control sequence
         H_inv = np.linalg.inv(H)
@@ -240,9 +254,9 @@ def test(mode, target_pos=[0, 0]):
         current_time += time_step
 
         error = np.sqrt((target_pos[0] - base_pos_no_noise[0]) ** 2 + (target_pos[1] - base_pos_no_noise[1]) ** 2)
-        print(error)
         errors.append(error)
 
+        print(current_time)
         if current_time >= 10:
             break
 
