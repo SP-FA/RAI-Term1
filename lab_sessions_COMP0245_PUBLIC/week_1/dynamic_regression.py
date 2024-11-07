@@ -40,7 +40,7 @@ def main():
     # Simulation parameters
     time_step = sim.GetTimeStep()
     current_time = 0
-    max_time = 5  # seconds
+    max_time = 10  # seconds
     
     # Command and control loop
     cmd = MotorCommands()  # Initialize command structure for motors
@@ -63,8 +63,7 @@ def main():
         q_d, qd_d = ref.get_values(current_time)  # Desired position and velocity
         
         # Control command
-        cmd.control_list = ["torque", "torque", "torque", "torque", "torque", "torque", "torque"]
-        cmd.ctrl_cmd = feedback_lin_ctrl(dyn_model, q_mes, qd_mes, q_d, qd_d, kp, kd)
+        cmd.tau_cmd = feedback_lin_ctrl(dyn_model, q_mes, qd_mes, q_d, qd_d, kp, kd)
         sim.Step(cmd, "torque")
 
         # Get measured torque
@@ -91,20 +90,17 @@ def main():
         print(f"Current time in seconds: {current_time:.2f}")
 
     # TODO After data collection, stack all the regressor and all the torquen and compute the parameters 'a'  using pseudoinverse
-    # tau_mes_all = np.array(tau_mes_all)  # u(x), (n, j)
-    # regressor_all = np.array(regressor_all)  # Y(g, g_d, g_dd), (n, j, p)
-    n, j, p = np.array(regressor_all).shape
+    tau_mes_all = np.array(tau_mes_all)  # u(x), (n, j)
+    regressor_all = np.array(regressor_all)  # Y(g, g_d, g_dd), (n, j, p)
+    n, j, p = regressor_all.shape
 
-    X  = np.vstack(regressor_all) # regressor_all.reshape((n * j, p))  # (n * j, p)
+    X  = regressor_all.reshape((n * j, p))  # (n * j, p)
     XT = X.T
-    y = np.hstack(tau_mes_all)  # tau_mes_all.reshape((n * j))  # (n * j)
+    y = tau_mes_all.reshape((n * j))  # (n * j)
 
     regressor_inv = np.linalg.pinv(X)  # (p, n * j)
     a = regressor_inv @ y  # (p, 1)
-    u_hat = X @ a  # (n * j)
-
-    print((y[-10:] * 100).round() / 100)
-    print((u_hat[-10:] * 100).round() / 100)
+    u_hat = X @ a  # (j)
 
     # a = np.squeeze(a, axis=-1)  # (p)
     print(f"a: {a}")
@@ -112,101 +108,45 @@ def main():
     # print(a[:, :, np.newaxis].transpose(1, 0, 2) - beta_hat)
 
     # TODO compute the metrics for the linear model
-    RSS = np.sum((y - u_hat) ** 2)  # (1)
-    TSS = np.sum((y - np.mean(y)) ** 2)  # + 1e-9
+    RSS = np.sum((y - u_hat) ** 2, axis=0)  # (1)
+    TSS = np.sum((y - np.mean(y, axis=0)) ** 2, axis=0)  # + 1e-9
 
     r2 = 1 - RSS / TSS
-    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - p - 1))  # (1)
+    r2_adj = 1 - ((1  - r2) * (n - 1) / (n - j - 1))  # (1)
     print(f"r2_adj: {r2_adj}")
 
-    F = (TSS - RSS) * (n - p - 1) / (RSS * p)  # (1)
+    F = (TSS - RSS) * (n - j - 1) / (RSS * j)  # (1)
     print(f"F: {F}")
 
     sigma2 = RSS / (n - j - 1)  # (1)
     covariance = (XT @ X) * sigma2  # (p, p)
     se_beta = np.sqrt(np.diagonal(np.linalg.pinv(covariance)) + 1e-9)
-    se_beta_norm = (se_beta - np.min(se_beta)) / (np.max(se_beta) - np.min(se_beta))
-    a_norm = (a - np.min(a)) / (np.max(a) - np.min(a))
-    interval_low  = a_norm - 1.96 * se_beta
-    interval_high = a_norm + 1.96 * se_beta
-
-    print("params interval")
-    print(np.median(interval_low))
-    print(np.median(interval_high))
-
-    # print(f"params interval low: {interval_low}")
-    # print(f"params interval high: {interval_high}")
-    # print(f"params interval low / high shape: {interval_low.shape}")
-
-    # param_indices = range(1, len(a) + 1)
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(param_indices, a_norm, marker=".", color='blue', label='Normalised Parameters')
-    # plt.fill_between(
-    #     param_indices,
-    #     interval_low,
-    #     interval_high,
-    #     color='orange',
-    #     alpha=0.3,
-    #     label=f'Normalised Confidence Interval'
-    # )
-    #
-    # plt.xlabel('Parameter Index')
-    # plt.ylabel('Parameter Value')
-    # plt.title('Normalised Confidence Intervals for Each Parameters')
-    # plt.grid(True, linestyle='--', alpha=0.7)
-    # plt.legend()
-    # plt.tight_layout()
-    # plt.show()
+    interval_low  = a - 1.96 * se_beta
+    interval_high = a + 1.96 * se_beta
+    print(f"params interval low: {interval_low}")
+    print(f"params interval high: {interval_high}")
+    print(f"params interval low / high shape: {interval_low.shape}")
 
     # print(f"se_beta: {se_beta}")
     # print(f"se_beta_shape: {se_beta.shape}")
 
     se_pred = np.sqrt(np.diagonal(X @ np.linalg.pinv(XT @ X) @ XT + 1) * sigma2)
-    se_pred_norm = (se_pred - np.min(se_pred)) / (np.max(se_pred) - np.min(se_pred))
-    u_hat_norm = (u_hat - np.min(u_hat)) / (np.max(u_hat) - np.min(u_hat))
-    interval_low = u_hat_norm - 1.96 * se_pred
-    interval_high = u_hat_norm + 1.96 * se_pred
-
-    print("pred interval")
-    print(np.median(interval_low))
-    print(np.median(interval_high))
-
-    # print(f"pred interval low: {interval_low}")
-    # print(f"pred interval high: {interval_high}")
-    # print(f"pred interval low / high shape: {interval_low.shape}")
+    u_hat = np.squeeze(u_hat, axis=-1)
+    interval_low = u_hat - 1.96 * se_pred
+    interval_high = u_hat + 1.96 * se_pred
+    print(f"pred interval low: {interval_low}")
+    print(f"pred interval high: {interval_high}")
+    print(f"pred interval low / high shape: {interval_low.shape}")
     # print(se_pred)
     # print(se_pred.shape)
 
-    # param_indices = range(1, 51)
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(param_indices, u_hat_norm[-50:], marker=".", color='blue', label='Normalised Parameters')
-    # plt.fill_between(
-    #     param_indices,
-    #     interval_low[-50:],
-    #     interval_high[-50:],
-    #     color='orange',
-    #     alpha=0.3,
-    #     label=f'Normalised Confidence Interval'
-    # )
-    #
-    # plt.xlabel('Parameter Index')
-    # plt.ylabel('Parameter Value')
-    # plt.title('Normalised Confidence Intervals for Predictions')
-    # plt.grid(True, linestyle='--', alpha=0.7)
-    # plt.legend()
-    # plt.tight_layout()
-    # plt.show()
-
     # TODO plot the torque prediction error for each joint (optional)
-    y_joint = y.reshape(n, j).T
-    u_hat_joint = u_hat.reshape(n, j).T
-
-    MSE = np.sum((y_joint - u_hat_joint) ** 2, axis=1) / n  # (7)
+    MSE = RSS / n
     plt.figure()
     plt.plot(MSE, "b", label="q")
-    plt.title("MSE")
+    plt.title("R2")
     plt.xlabel("joint id")
-    plt.ylabel("MSE")
+    plt.ylabel("R2")
     plt.grid(True)
     plt.show()
     
