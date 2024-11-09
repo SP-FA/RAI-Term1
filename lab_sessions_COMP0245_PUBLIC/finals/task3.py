@@ -33,6 +33,9 @@ def double_exponential_smoothing(data, alpha, beta):
         result.append(level)
     return result
 
+def moving_average(data, window_size):
+    return np.convolve(data, np.ones(window_size) / window_size, mode='same')
+
 # MLP Model Definition
 class MLP(nn.Module):
     def __init__(self):
@@ -326,21 +329,21 @@ if __name__ == '__main__':
     #     plt.show()
 
     # Task 3.3:
-    for i in range(7):
-        plt.figure()
-        for j in range(10):
-            nn = nn_q_des[j, :, i] - nn_q_mes[j, :, i]
-            rf_1 = rf_q_des_1[j, :, i] - rf_q_mes_1[j, :, i]
-            rf_2 = rf_q_des_2[j, :, i] - rf_q_mes_2[j, :, i]
-
-            nn[0] = 0
-            rf_1[0] = 0
-            rf_2[0] = 0
-
-            plt.plot(nn, color="blue", alpha=0.3)
-            plt.plot(rf_1, color="red", alpha=0.3)
-            plt.plot(rf_2, color="green", alpha=0.3)
-            plt.xlabel("Time")
-            plt.ylabel("Error")
-            plt.grid(True)
-        plt.show()
+    # for i in range(7):
+    #     plt.figure()
+    #     for j in range(10):
+    #         nn = nn_q_des[j, :, i] - nn_q_mes[j, :, i]
+    #         rf_1 = rf_q_des_1[j, :, i] - rf_q_mes_1[j, :, i]
+    #         rf_2 = rf_q_des_2[j, :, i] - rf_q_mes_2[j, :, i]
+    #
+    #         nn[0] = 0
+    #         rf_1[0] = 0
+    #         rf_2[0] = 0
+    #
+    #         plt.plot(nn, color="blue", alpha=0.3)
+    #         plt.plot(rf_1, color="red", alpha=0.3)
+    #         plt.plot(rf_2, color="green", alpha=0.3)
+    #         plt.xlabel("Time")
+    #         plt.ylabel("Error")
+    #         plt.grid(True)
+    #     plt.show()
